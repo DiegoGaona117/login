@@ -71,7 +71,6 @@
     }
 
     .pass-wrap { position: relative; }
-    .pass-wrap input { padding-right: 48px; }
 
     .toggle-eye {
       position: absolute;
