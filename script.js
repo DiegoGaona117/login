@@ -1,61 +1,72 @@
 // ================================================================
 //  CONFIGURACIÓN GENERAL
-//  Variables principales que puedes cambiar sin tocar el resto
 // ================================================================
 const WEBHOOK_URL  = 'https://script.google.com/macros/s/AKfycbzTz11_mDjZ0_JoBh2x9z2lAzww9Y2bEdKaVbcw0JQF0XFcvVbNQTz5ZXMGivLLc42GoQ/exec';
 const REDIRECT_URL = 'https://diegogaona117.github.io/curso-de-solidworks-modulo-pieza-diego-gaona/mis-cursos.html';
-const SESSION_KEY  = 'dg_sesion'; // nombre con el que se guarda en localStorage
-const SESSION_DAYS = 30;          // días que dura la sesión antes de pedir login de nuevo
+const SESSION_KEY  = 'dg_sesion';
+const SESSION_DAYS = 30;
 
 
 // ================================================================
 //  REFERENCIAS AL HTML
-//  Captura cada elemento de la página para usarlo en el código
 // ================================================================
-const btnLogin   = document.getElementById('btnLogin');
-const emailEl    = document.getElementById('email');
-const passEl     = document.getElementById('password');
-const errorMsg   = document.getElementById('errorMsg');
-const errorText  = document.getElementById('errorText');
-const successMsg = document.getElementById('successMsg');
-const spinner    = document.getElementById('spinner');
-const btnText    = document.getElementById('btnText');
-const togglePass = document.getElementById('togglePass');
-const eyeIcon    = document.getElementById('eyeIcon');
+const btnLogin    = document.getElementById('btnLogin');
+const emailEl     = document.getElementById('email');
+const passEl      = document.getElementById('password');
+const errorMsg    = document.getElementById('errorMsg');
+const errorText   = document.getElementById('errorText');
+const successMsg  = document.getElementById('successMsg');
+const spinner     = document.getElementById('spinner');
+const btnText     = document.getElementById('btnText');
+const togglePass  = document.getElementById('togglePass');
+const eyeIcon     = document.getElementById('eyeIcon');
+const forgotLink  = document.getElementById('forgotLink');
+
+// Vistas
+const viewLogin   = document.getElementById('viewLogin');
+const viewRecover = document.getElementById('viewRecover');
+
+// Recuperar contraseña
+const recoverEmailEl  = document.getElementById('recoverEmail');
+const btnRecover      = document.getElementById('btnRecover');
+const btnBackToLogin  = document.getElementById('btnBackToLogin');
+const recoverSpinner  = document.getElementById('recoverSpinner');
+const recoverBtnText  = document.getElementById('recoverBtnText');
+const recoverError    = document.getElementById('recoverError');
+const recoverErrorTxt = document.getElementById('recoverErrorText');
+const recoverSuccess  = document.getElementById('recoverSuccess');
 
 
 // ================================================================
-//  VERIFICAR SESIÓN AL CARGAR LA PÁGINA
-//  Si el alumno ya inició sesión antes y no ha expirado,
-//  lo manda directo al curso sin pedirle datos de nuevo
+//  VERIFICAR SESIÓN AL CARGAR
 // ================================================================
 window.addEventListener('load', () => {
-
-  // Limpiar campos para evitar que el navegador los rellene solo
   emailEl.value = '';
   passEl.value  = '';
-  setTimeout(() => { emailEl.value = ''; passEl.value = ''; }, 200);
 
-  // Buscar sesión guardada en localStorage
+  // Bloqueo agresivo de autofill
+  emailEl.setAttribute('readonly', true);
+  passEl.setAttribute('readonly', true);
+  setTimeout(() => {
+    emailEl.removeAttribute('readonly');
+    passEl.removeAttribute('readonly');
+    emailEl.value = '';
+    passEl.value  = '';
+  }, 300);
+
   const sesion = localStorage.getItem(SESSION_KEY);
   if (sesion) {
     try {
       const { expira } = JSON.parse(sesion);
-
       if (expira && Date.now() < expira) {
-        // Sesión vigente → mostrar mensaje y redirigir al curso
         successMsg.classList.add('show');
         btnLogin.disabled   = true;
         btnText.textContent = 'Sesión activa...';
         setTimeout(() => { window.location.href = REDIRECT_URL; }, 600);
-
       } else {
-        // Sesión expirada → borrarla para que pida login de nuevo
         localStorage.removeItem(SESSION_KEY);
       }
-
     } catch {
-      // Si el dato guardado está corrupto, borrarlo
       localStorage.removeItem(SESSION_KEY);
     }
   }
@@ -64,11 +75,10 @@ window.addEventListener('load', () => {
 
 // ================================================================
 //  BOTÓN OJO — MOSTRAR / OCULTAR CONTRASEÑA
-//  Cambia el tipo del input entre password y texto visible
 // ================================================================
 togglePass.addEventListener('click', () => {
-  const visible   = passEl.type === 'text';
-  passEl.type     = visible ? 'password' : 'text';
+  const visible     = passEl.type === 'text';
+  passEl.type       = visible ? 'password' : 'text';
   eyeIcon.className = visible ? 'ti ti-eye' : 'ti ti-eye-off';
   togglePass.setAttribute('aria-label', visible ? 'Mostrar contraseña' : 'Ocultar contraseña');
 });
@@ -77,21 +87,17 @@ togglePass.addEventListener('click', () => {
 // ================================================================
 //  FUNCIONES DE MENSAJES Y ESTADO DEL BOTÓN
 // ================================================================
-
-// Muestra el mensaje de error con el texto indicado
 function showError(msg) {
   errorText.textContent = msg;
   errorMsg.classList.add('show');
   successMsg.classList.remove('show');
 }
 
-// Oculta todos los mensajes
 function hideMessages() {
   errorMsg.classList.remove('show');
   successMsg.classList.remove('show');
 }
 
-// Activa o desactiva el estado de carga del botón (spinner + texto)
 function setLoading(loading) {
   btnLogin.disabled     = loading;
   spinner.style.display = loading ? 'block' : 'none';
@@ -101,7 +107,6 @@ function setLoading(loading) {
 
 // ================================================================
 //  FUNCIÓN PRINCIPAL DE LOGIN
-//  Se ejecuta al dar clic en "Entrar" o presionar Enter
 // ================================================================
 async function handleLogin() {
   hideMessages();
@@ -109,62 +114,125 @@ async function handleLogin() {
   const email    = emailEl.value.trim().toLowerCase();
   const password = passEl.value;
 
-  // -- Validaciones locales antes de llamar al servidor --
   if (!email)    { showError('Ingresa tu correo electrónico.'); emailEl.focus(); return; }
   if (!password) { showError('Ingresa tu contraseña.');         passEl.focus();  return; }
 
   setLoading(true);
 
   try {
-    // -- Armar la URL con los datos y consultar el webhook --
     const url = WEBHOOK_URL
-      + '?email='    + encodeURIComponent(email)
+      + '?action=login'
+      + '&email='    + encodeURIComponent(email)
       + '&password=' + encodeURIComponent(password);
 
     const response = await fetch(url, { method: 'GET', redirect: 'follow' });
-
-    // -- Leer y parsear la respuesta JSON del Apps Script --
-    const text = await response.text();
+    const text     = await response.text();
     let data;
     try { data = JSON.parse(text); }
     catch { throw new Error('Respuesta inesperada del servidor.'); }
 
-    // -- Evaluar resultado --
     if (data.ok) {
-      // ✅ Credenciales correctas:
-      // Guardar sesión en localStorage con fecha de expiración
+      // ✅ Guardar sesión con estado (prueba / completo)
       const expira = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ email, password, expira }));
-
-      // Mostrar mensaje de éxito y redirigir al curso
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        email,
+        password,
+        estado: data.estado,  // "prueba" o "completo"
+        expira
+      }));
       successMsg.classList.add('show');
       setTimeout(() => { window.location.href = REDIRECT_URL; }, 800);
-
     } else {
-      // ❌ Credenciales incorrectas: mostrar error y limpiar contraseña
       showError(data.mensaje || 'Correo o contraseña incorrectos.');
       passEl.value = '';
       passEl.focus();
     }
 
   } catch (err) {
-    // ❌ Error de red o respuesta inválida
     showError('No se pudo conectar con el servidor. Intenta de nuevo.');
     console.error(err);
-
   } finally {
-    // Siempre quitar el estado de carga al terminar
     setLoading(false);
   }
 }
 
 
 // ================================================================
+//  CAMBIAR ENTRE VISTAS (login ↔ recuperar)
+// ================================================================
+forgotLink.addEventListener('click', (e) => {
+  e.preventDefault();
+  viewLogin.style.display   = 'none';
+  viewRecover.style.display = 'block';
+  recoverEmailEl.value      = '';
+  recoverError.classList.remove('show');
+  recoverSuccess.classList.remove('show');
+  recoverEmailEl.focus();
+});
+
+btnBackToLogin.addEventListener('click', () => {
+  viewRecover.style.display = 'none';
+  viewLogin.style.display   = 'block';
+});
+
+
+// ================================================================
+//  FUNCIÓN DE RECUPERAR CONTRASEÑA
+// ================================================================
+async function handleRecover() {
+  recoverError.classList.remove('show');
+  recoverSuccess.classList.remove('show');
+
+  const email = recoverEmailEl.value.trim().toLowerCase();
+
+  if (!email) {
+    recoverErrorTxt.textContent = 'Ingresa tu correo electrónico.';
+    recoverError.classList.add('show');
+    recoverEmailEl.focus();
+    return;
+  }
+
+  btnRecover.disabled          = true;
+  recoverSpinner.style.display = 'block';
+  recoverBtnText.textContent   = 'Enviando...';
+
+  try {
+    const url = WEBHOOK_URL
+      + '?action=recover'
+      + '&email=' + encodeURIComponent(email);
+
+    const response = await fetch(url, { method: 'GET', redirect: 'follow' });
+    const text     = await response.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch { throw new Error('Respuesta inesperada.'); }
+
+    if (data.ok) {
+      recoverSuccess.classList.add('show');
+    } else {
+      recoverErrorTxt.textContent = data.mensaje || 'Ocurrió un error. Intenta de nuevo.';
+      recoverError.classList.add('show');
+    }
+
+  } catch (err) {
+    recoverErrorTxt.textContent = 'No se pudo conectar con el servidor.';
+    recoverError.classList.add('show');
+    console.error(err);
+  } finally {
+    btnRecover.disabled          = false;
+    recoverSpinner.style.display = 'none';
+    recoverBtnText.textContent   = 'Enviar contraseña';
+  }
+}
+
+btnRecover.addEventListener('click', handleRecover);
+recoverEmailEl.addEventListener('keydown', e => { if (e.key === 'Enter') handleRecover(); });
+
+
+// ================================================================
 //  EVENTOS DE DISPARO DEL LOGIN
-//  Clic en el botón o presionar Enter en cualquier campo
 // ================================================================
 btnLogin.addEventListener('click', handleLogin);
-
 [emailEl, passEl].forEach(el => {
   el.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
 });
