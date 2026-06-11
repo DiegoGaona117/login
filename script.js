@@ -20,21 +20,6 @@ const spinner     = document.getElementById('spinner');
 const btnText     = document.getElementById('btnText');
 const togglePass  = document.getElementById('togglePass');
 const eyeIcon     = document.getElementById('eyeIcon');
-const forgotLink  = document.getElementById('forgotLink');
-
-// Vistas
-const viewLogin   = document.getElementById('viewLogin');
-const viewRecover = document.getElementById('viewRecover');
-
-// Recuperar contraseña
-const recoverEmailEl  = document.getElementById('recoverEmail');
-const btnRecover      = document.getElementById('btnRecover');
-const btnBackToLogin  = document.getElementById('btnBackToLogin');
-const recoverSpinner  = document.getElementById('recoverSpinner');
-const recoverBtnText  = document.getElementById('recoverBtnText');
-const recoverError    = document.getElementById('recoverError');
-const recoverErrorTxt = document.getElementById('recoverErrorText');
-const recoverSuccess  = document.getElementById('recoverSuccess');
 
 
 // ================================================================
@@ -155,78 +140,6 @@ async function handleLogin() {
     setLoading(false);
   }
 }
-
-
-// ================================================================
-//  CAMBIAR ENTRE VISTAS (login ↔ recuperar)
-// ================================================================
-forgotLink.addEventListener('click', (e) => {
-  e.preventDefault();
-  viewLogin.style.display   = 'none';
-  viewRecover.style.display = 'block';
-  recoverEmailEl.value      = '';
-  recoverError.classList.remove('show');
-  recoverSuccess.classList.remove('show');
-  recoverEmailEl.focus();
-});
-
-btnBackToLogin.addEventListener('click', () => {
-  viewRecover.style.display = 'none';
-  viewLogin.style.display   = 'block';
-});
-
-
-// ================================================================
-//  FUNCIÓN DE RECUPERAR CONTRASEÑA
-// ================================================================
-async function handleRecover() {
-  recoverError.classList.remove('show');
-  recoverSuccess.classList.remove('show');
-
-  const email = recoverEmailEl.value.trim().toLowerCase();
-
-  if (!email) {
-    recoverErrorTxt.textContent = 'Ingresa tu correo electrónico.';
-    recoverError.classList.add('show');
-    recoverEmailEl.focus();
-    return;
-  }
-
-  btnRecover.disabled          = true;
-  recoverSpinner.style.display = 'block';
-  recoverBtnText.textContent   = 'Enviando...';
-
-  try {
-    const url = WEBHOOK_URL
-      + '?action=recover'
-      + '&email=' + encodeURIComponent(email);
-
-    const response = await fetch(url, { method: 'GET', redirect: 'follow' });
-    const text     = await response.text();
-    let data;
-    try { data = JSON.parse(text); }
-    catch { throw new Error('Respuesta inesperada.'); }
-
-    if (data.ok) {
-      recoverSuccess.classList.add('show');
-    } else {
-      recoverErrorTxt.textContent = data.mensaje || 'Ocurrió un error. Intenta de nuevo.';
-      recoverError.classList.add('show');
-    }
-
-  } catch (err) {
-    recoverErrorTxt.textContent = 'No se pudo conectar con el servidor.';
-    recoverError.classList.add('show');
-    console.error(err);
-  } finally {
-    btnRecover.disabled          = false;
-    recoverSpinner.style.display = 'none';
-    recoverBtnText.textContent   = 'Enviar contraseña';
-  }
-}
-
-btnRecover.addEventListener('click', handleRecover);
-recoverEmailEl.addEventListener('keydown', e => { if (e.key === 'Enter') handleRecover(); });
 
 
 // ================================================================
