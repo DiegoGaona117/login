@@ -1,8 +1,8 @@
 // ================================================================
 //  CONFIGURACIÓN GENERAL
 // ================================================================
-const WEBHOOK_URL  = 'https://script.google.com/macros/s/AKfycbxR5tMM5ij3Qqv7RvYQE-44QQ0zGTan-FfFET4Rla62Y361q7zL7iBVCu94uje88K5eeg/exec';
-const REDIRECT_URL = 'https://diegogaona117.github.io/curso-de-solidworks-modulo-pieza-diego-gaona/mis-cursos.html';
+const WEBHOOK_URL  = 'https://script.google.com/macros/s/AKfycbygQ48ZOiIA6abGu0L9fwGLhLkPxapSQd0e2wXis07ZWjL263v42qEoCGEx7CXczirC/exec';
+const REDIRECT_URL = 'https://diegogaona117.github.io/curso-de-solidworks-modulo-pieza-diego-gaona/prueba.html';
 const SESSION_KEY  = 'dg_sesion';
 const SESSION_DAYS = 30;
 
