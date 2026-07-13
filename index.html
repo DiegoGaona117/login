@@ -60,7 +60,110 @@
     gtag('config', 'G-RN68VLQLTW');
   </script>
 
-  <link rel="stylesheet" href="styles.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f4f4f2;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      color: #1a1a18;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 14px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 2rem;
+    }
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: #e6f1fb;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: #185fa5;
+    }
+    .logo-text { font-size: 15px; font-weight: 600; color: #1a1a18; }
+    h1 { font-size: 20px; font-weight: 600; color: #1a1a18; margin-bottom: 0.35rem; }
+    .subtitle { font-size: 13px; color: #888780; margin-bottom: 1.75rem; }
+    .field { margin-bottom: 1rem; }
+    label { display: block; font-size: 13px; color: #5f5e5a; margin-bottom: 6px; }
+    input[type="text"] {
+      width: 100%;
+      height: 40px;
+      border: 1px solid #d3d1c7;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #1a1a18;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      padding: 0 12px;
+    }
+    input:focus {
+      border-color: #378add;
+      box-shadow: 0 0 0 3px rgba(55,138,221,0.12);
+    }
+    .btn-login {
+      width: 100%;
+      height: 42px;
+      background: #1a1a18;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 0.5rem;
+    }
+    .btn-login:hover:not(:disabled) { opacity: 0.85; }
+    .btn-login:active:not(:disabled) { transform: scale(0.98); }
+    .btn-login:disabled { opacity: 0.6; cursor: not-allowed; }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .msg {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-bottom: 1rem;
+    }
+    .msg.error   { color: #a32d2d; background: #fcebeb; border: 1px solid #f09595; }
+    .msg.success { color: #3b6d11; background: #eaf3de; border: 1px solid #97c459; }
+    .msg.show    { display: flex; }
+    .divider { border: none; border-top: 1px solid #e8e6df; margin: 1.5rem 0 1rem; }
+    .help { font-size: 12px; color: #b4b2a9; text-align: center; line-height: 1.6; }
+  </style>
 </head>
 <body>
 
@@ -73,7 +176,7 @@
         <span class="logo-text">Diego Gaona · Cursos</span>
       </div>
       <h1>Iniciar sesión</h1>
-      <p class="subtitle">Ingresa tus datos para acceder al contenido</p>
+      <p class="subtitle">Ingresa tu correo para acceder al contenido</p>
 
       <div class="msg error" id="errorMsg">
         <i class="ti ti-alert-circle"></i>
@@ -90,17 +193,6 @@
           autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false" />
       </div>
 
-      <div class="field">
-        <label for="password">Contraseña</label>
-        <div class="pass-wrap">
-          <input type="password" id="password" placeholder="••••••••" autocomplete="new-password" />
-          <button class="toggle-eye" id="togglePass" aria-label="Mostrar contraseña">
-            <i class="ti ti-eye" id="eyeIcon"></i>
-          </button>
-        </div>
-      </div>
-
-    
       <button class="btn-login" id="btnLogin">
         <div class="spinner" id="spinner"></div>
         <span id="btnText">Entrar</span>
@@ -110,9 +202,149 @@
       <p class="help">¿No tienes acceso? Contacta al administrador del curso.</p>
     </div>
 
-      </div>
+  </div>
 
-  <script src="script.js"></script>
+  <script>
+    // ================================================================
+    //  CONFIGURACIÓN GENERAL
+    // ================================================================
+    const WEBHOOK_URL  = 'https://script.google.com/macros/s/AKfycbygQ48ZOiIA6abGu0L9fwGLhLkPxapSQd0e2wXis07ZWjL263v42qEoCGEx7CXczirC/exec';
+    const REDIRECT_URL = 'https://diegogaona117.github.io/curso-de-solidworks-modulo-pieza-diego-gaona/mis-cursos.html';
+    const SESSION_KEY  = 'dg_sesion';
+    const SESSION_DAYS = 30;
+
+    // Estados que SÍ dan acceso. Ajusta esta lista según los valores
+    // que use tu hoja/base de datos (por ejemplo: "completo", "prueba").
+    const ESTADOS_PERMITIDOS = ['completo', 'prueba'];
+
+    // ================================================================
+    //  REFERENCIAS AL HTML
+    // ================================================================
+    const btnLogin    = document.getElementById('btnLogin');
+    const emailEl     = document.getElementById('email');
+    const errorMsg    = document.getElementById('errorMsg');
+    const errorText   = document.getElementById('errorText');
+    const successMsg  = document.getElementById('successMsg');
+    const spinner     = document.getElementById('spinner');
+    const btnText     = document.getElementById('btnText');
+
+    // ================================================================
+    //  VERIFICAR SESIÓN AL CARGAR
+    // ================================================================
+    window.addEventListener('load', () => {
+      emailEl.value = '';
+
+      // Bloqueo agresivo de autofill
+      emailEl.setAttribute('readonly', true);
+      setTimeout(() => {
+        emailEl.removeAttribute('readonly');
+        emailEl.value = '';
+      }, 300);
+
+      const sesion = localStorage.getItem(SESSION_KEY);
+      if (sesion) {
+        try {
+          const { expira } = JSON.parse(sesion);
+          if (expira && Date.now() < expira) {
+            successMsg.classList.add('show');
+            btnLogin.disabled   = true;
+            btnText.textContent = 'Sesión activa...';
+            setTimeout(() => { window.location.href = REDIRECT_URL; }, 600);
+          } else {
+            localStorage.removeItem(SESSION_KEY);
+          }
+        } catch {
+          localStorage.removeItem(SESSION_KEY);
+        }
+      }
+    });
+
+    // ================================================================
+    //  FUNCIONES DE MENSAJES Y ESTADO DEL BOTÓN
+    // ================================================================
+    function showError(msg) {
+      errorText.textContent = msg;
+      errorMsg.classList.add('show');
+      successMsg.classList.remove('show');
+    }
+
+    function hideMessages() {
+      errorMsg.classList.remove('show');
+      successMsg.classList.remove('show');
+    }
+
+    function setLoading(loading) {
+      btnLogin.disabled     = loading;
+      spinner.style.display = loading ? 'block' : 'none';
+      btnText.textContent   = loading ? 'Verificando...' : 'Entrar';
+    }
+
+    // ================================================================
+    //  FUNCIÓN PRINCIPAL DE LOGIN (SOLO CORREO)
+    // ================================================================
+    async function handleLogin() {
+      hideMessages();
+
+      const email = emailEl.value.trim().toLowerCase();
+
+      if (!email) { showError('Ingresa tu correo electrónico.'); emailEl.focus(); return; }
+
+      // Validación básica de formato de correo
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        showError('Ingresa un correo electrónico válido.');
+        emailEl.focus();
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        const url = WEBHOOK_URL
+          + '?action=login'
+          + '&email=' + encodeURIComponent(email);
+
+        const response = await fetch(url, { method: 'GET', redirect: 'follow' });
+        const text     = await response.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch { throw new Error('Respuesta inesperada del servidor.'); }
+
+        // El backend regresa:
+        // { ok: true, estado: "completo" }  o  { ok: true, estado: "prueba" }
+        // { ok: false, mensaje: "..." }  ← siempre el mismo mensaje genérico
+        //   sin importar si el correo no existe, está removido o sin acceso,
+        //   para no revelar esa información a quien no debería tenerla.
+        const estado = (data.estado || '').toString().trim().toLowerCase();
+
+        if (data.ok && ESTADOS_PERMITIDOS.includes(estado)) {
+          const expira = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
+          localStorage.setItem(SESSION_KEY, JSON.stringify({
+            email,
+            estado,
+            expira
+          }));
+          successMsg.classList.add('show');
+          setTimeout(() => { window.location.href = REDIRECT_URL; }, 800);
+        } else {
+          showError(data.mensaje || 'Correo no encontrado o sin acceso activo.');
+          emailEl.focus();
+        }
+
+      } catch (err) {
+        showError('No se pudo conectar con el servidor. Intenta de nuevo.');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // ================================================================
+    //  EVENTOS DE DISPARO DEL LOGIN
+    // ================================================================
+    btnLogin.addEventListener('click', handleLogin);
+    emailEl.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+  </script>
 
 </body>
 </html>
