@@ -27,6 +27,7 @@
   <link rel="preconnect" href="https://www.youtube.com">
   <link rel="preconnect" href="https://connect.facebook.net">
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://get.geojs.io">
 
   <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -208,10 +209,11 @@
     // ================================================================
     //  CONFIGURACIÓN GENERAL
     // ================================================================
-    const WEBHOOK_URL  = 'https://script.google.com/macros/s/AKfycbxEbbDW-MwWJQSorzOfWovtWb4YPGWaLp2XTMFgNPCuMI1qoTQZVgWh_W14qOJ8QoK3_g/exec';
-    const REDIRECT_URL = 'https://diegogaona117.github.io/curso-de-solidworks-modulo-pieza-diego-gaona/mis-cursos.html';
-    const SESSION_KEY  = 'dg_sesion';
-    const SESSION_DAYS = 30;
+    const WEBHOOK_URL   = 'https://script.google.com/macros/s/AKfycbxEbbDW-MwWJQSorzOfWovtWb4YPGWaLp2XTMFgNPCuMI1qoTQZVgWh_W14qOJ8QoK3_g/exec';
+    const REDIRECT_URL  = 'https://diegogaona117.github.io/curso-de-solidworks-modulo-pieza-diego-gaona/mis-cursos.html';
+    const GEO_URL        = 'https://get.geojs.io/v1/ip/geo.json';
+    const SESSION_KEY    = 'dg_sesion';
+    const SESSION_DAYS   = 30;
 
     // Estados que SÍ dan acceso. Ajusta esta lista según los valores
     // que use tu hoja/base de datos (por ejemplo: "completo", "prueba").
@@ -280,7 +282,31 @@
     }
 
     // ================================================================
-    //  FUNCIÓN PRINCIPAL DE LOGIN (SOLO CORREO)
+    //  OBTENER UBICACIÓN APROXIMADA POR IP (no pide permiso al usuario)
+    //  Si falla o tarda más de 2.5s, seguimos sin bloquear el login.
+    // ================================================================
+    async function obtenerUbicacion() {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2500);
+
+      try {
+        const res = await fetch(GEO_URL, { signal: controller.signal });
+        const data = await res.json();
+        clearTimeout(timeout);
+        return {
+          ciudad: data.city || '',
+          region: data.region || '',
+          pais:   data.country || '',
+          ip:     data.ip || ''
+        };
+      } catch (e) {
+        clearTimeout(timeout);
+        return { ciudad: '', region: '', pais: '', ip: '' };
+      }
+    }
+
+    // ================================================================
+    //  FUNCIÓN PRINCIPAL DE LOGIN (correo + ubicación)
     // ================================================================
     async function handleLogin() {
       hideMessages();
@@ -300,9 +326,15 @@
       setLoading(true);
 
       try {
+        const geo = await obtenerUbicacion();
+
         const url = WEBHOOK_URL
           + '?action=login'
-          + '&email=' + encodeURIComponent(email);
+          + '&email=' + encodeURIComponent(email)
+          + '&ciudad=' + encodeURIComponent(geo.ciudad)
+          + '&region=' + encodeURIComponent(geo.region)
+          + '&pais='   + encodeURIComponent(geo.pais)
+          + '&ip='     + encodeURIComponent(geo.ip);
 
         const response = await fetch(url, { method: 'GET', redirect: 'follow' });
         const text     = await response.text();
@@ -310,11 +342,6 @@
         try { data = JSON.parse(text); }
         catch { throw new Error('Respuesta inesperada del servidor.'); }
 
-        // El backend regresa:
-        // { ok: true, estado: "completo" }  o  { ok: true, estado: "prueba" }
-        // { ok: false, mensaje: "..." }  ← siempre el mismo mensaje genérico
-        //   sin importar si el correo no existe, está removido o sin acceso,
-        //   para no revelar esa información a quien no debería tenerla.
         const estado = (data.estado || '').toString().trim().toLowerCase();
 
         if (data.ok && ESTADOS_PERMITIDOS.includes(estado)) {
