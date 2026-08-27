@@ -231,6 +231,20 @@
     const btnText     = document.getElementById('btnText');
 
     // ================================================================
+    //  CÓDIGO DE SESIÓN (anti-comparticion de cuenta)
+    //  Cada login exitoso genera un código nuevo tipo "579-352" y lo
+    //  manda al backend, que lo guarda en la hoja. Si otro dispositivo
+    //  inicia sesión con el mismo correo, se genera OTRO código y el
+    //  primero deja de ser válido: al revalidar, el backend responde
+    //  que el código ya no coincide y esa sesión se cierra sola.
+    // ================================================================
+    function generarCodigoSesion() {
+      const a = Math.floor(100 + Math.random() * 900);
+      const b = Math.floor(100 + Math.random() * 900);
+      return `${a}-${b}`;
+    }
+
+    // ================================================================
     //  VERIFICAR SESIÓN AL CARGAR
     // ================================================================
     window.addEventListener('load', () => {
@@ -243,23 +257,82 @@
         emailEl.value = '';
       }, 300);
 
-      const sesion = localStorage.getItem(SESSION_KEY);
-      if (sesion) {
-        try {
-          const { expira } = JSON.parse(sesion);
-          if (expira && Date.now() < expira) {
-            successMsg.classList.add('show');
-            btnLogin.disabled   = true;
-            btnText.textContent = 'Sesión activa...';
-            setTimeout(() => { window.location.href = REDIRECT_URL; }, 600);
-          } else {
-            localStorage.removeItem(SESSION_KEY);
-          }
-        } catch {
-          localStorage.removeItem(SESSION_KEY);
-        }
-      }
+      verificarSesionExistente();
     });
+
+    async function verificarSesionExistente() {
+      const sesionRaw = localStorage.getItem(SESSION_KEY);
+      if (!sesionRaw) return;
+
+      let sesion;
+      try {
+        sesion = JSON.parse(sesionRaw);
+      } catch {
+        localStorage.removeItem(SESSION_KEY);
+        return;
+      }
+
+      const { email, codigo, expira } = sesion;
+
+      // Expiró localmente (30 días) → fuera, sin llamar al servidor
+      if (!expira || Date.now() >= expira) {
+        localStorage.removeItem(SESSION_KEY);
+        return;
+      }
+
+      // No hay código guardado (sesión antigua antes de este sistema) → la
+      // tratamos como válida por esta vez; al hacer login de nuevo tomará código.
+      if (!email) {
+        localStorage.removeItem(SESSION_KEY);
+        return;
+      }
+
+      // Sesión con código: la confirmamos contra el servidor antes de redirigir,
+      // por si alguien más inició sesión con este correo desde otro lugar.
+      if (codigo) {
+        setLoading(true);
+        btnText.textContent = 'Verificando sesión...';
+
+        try {
+          const url = WEBHOOK_URL
+            + '?action=checkEstado'
+            + '&email=' + encodeURIComponent(email)
+            + '&codigo=' + encodeURIComponent(codigo);
+
+          const res  = await fetch(url);
+          const data = await res.json();
+
+          const estado = (data.estado || '').toString().trim().toLowerCase();
+
+          if (data.ok && ESTADOS_PERMITIDOS.includes(estado) && data.sesionValida) {
+            redirigirSesionValida();
+          } else {
+            // Otro dispositivo tomó la sesión, o el acceso ya no es válido
+            localStorage.removeItem(SESSION_KEY);
+            setLoading(false);
+            if (data.ok && !data.sesionValida) {
+              showError('Tu sesión se abrió en otro dispositivo. Inicia sesión de nuevo.');
+            }
+          }
+        } catch (e) {
+          // Sin conexión al validar: no bloqueamos al usuario, dejamos pasar
+          // con la sesión local y se revalidará después en mis-cursos.html.
+          console.error(e);
+          redirigirSesionValida();
+        }
+        return;
+      }
+
+      // Fallback: sesión vieja sin campo "codigo" -> dejar pasar una vez
+      redirigirSesionValida();
+    }
+
+    function redirigirSesionValida() {
+      successMsg.classList.add('show');
+      btnLogin.disabled   = true;
+      btnText.textContent = 'Sesión activa...';
+      setTimeout(() => { window.location.href = REDIRECT_URL; }, 600);
+    }
 
     // ================================================================
     //  FUNCIONES DE MENSAJES Y ESTADO DEL BOTÓN
@@ -306,7 +379,7 @@
     }
 
     // ================================================================
-    //  FUNCIÓN PRINCIPAL DE LOGIN (correo + ubicación)
+    //  FUNCIÓN PRINCIPAL DE LOGIN (correo + ubicación + código de sesión)
     // ================================================================
     async function handleLogin() {
       hideMessages();
@@ -327,10 +400,12 @@
 
       try {
         const geo = await obtenerUbicacion();
+        const codigoSesion = generarCodigoSesion();
 
         const url = WEBHOOK_URL
           + '?action=login'
           + '&email=' + encodeURIComponent(email)
+          + '&codigo=' + encodeURIComponent(codigoSesion)
           + '&ciudad=' + encodeURIComponent(geo.ciudad)
           + '&region=' + encodeURIComponent(geo.region)
           + '&pais='   + encodeURIComponent(geo.pais)
@@ -349,6 +424,7 @@
           localStorage.setItem(SESSION_KEY, JSON.stringify({
             email,
             estado,
+            codigo: codigoSesion,
             expira
           }));
           successMsg.classList.add('show');
