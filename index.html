@@ -318,56 +318,59 @@
     });
 
     async function verificarSesionExistente() {
-      const sesionRaw = localStorage.getItem(SESSION_KEY);
-      if (!sesionRaw) return;
+  const sesionRaw = localStorage.getItem(SESSION_KEY);
+  if (!sesionRaw) return;
 
-      let sesion;
-      try {
-        sesion = JSON.parse(sesionRaw);
-      } catch {
+  let sesion;
+  try {
+    sesion = JSON.parse(sesionRaw);
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+    return;
+  }
+
+  const { email, codigo, expira } = sesion;
+
+  if (!expira || Date.now() >= expira || !email) {
+    localStorage.removeItem(SESSION_KEY);
+    return;
+  }
+
+  if (codigo) {
+    setLoading(true);
+    btnText.textContent = 'Verificando sesión...';
+
+    try {
+      const url = WEBHOOK_URL
+        + '?action=checkEstado'
+        + '&email=' + encodeURIComponent(email)
+        + '&codigo=' + encodeURIComponent(codigo);
+
+      const res  = await fetch(url);
+      const data = await res.json();
+      const estado = (data.estado || '').toString().trim().toLowerCase();
+
+      if (data.ok && ESTADOS_PERMITIDOS.includes(estado) && data.sesionValida) {
+        redirigirSesionValida();
+      } else {
         localStorage.removeItem(SESSION_KEY);
-        return;
-      }
-
-      const { email, codigo, expira } = sesion;
-
-      if (!expira || Date.now() >= expira || !email) {
-        localStorage.removeItem(SESSION_KEY);
-        return;
-      }
-
-      if (codigo) {
-        setLoading(true);
-        btnText.textContent = 'Verificando sesión...';
-
-        try {
-          const url = WEBHOOK_URL
-            + '?action=checkEstado'
-            + '&email=' + encodeURIComponent(email)
-            + '&codigo=' + encodeURIComponent(codigo);
-
-          const res  = await fetch(url);
-          const data = await res.json();
-          const estado = (data.estado || '').toString().trim().toLowerCase();
-
-          if (data.ok && ESTADOS_PERMITIDOS.includes(estado) && data.sesionValida) {
-            redirigirSesionValida();
-          } else {
-            localStorage.removeItem(SESSION_KEY);
-            setLoading(false);
-            if (data.ok && !data.sesionValida) {
-              showError('Tu sesión se abrió en otro dispositivo. Inicia sesión de nuevo.');
-            }
-          }
-        } catch (e) {
-          console.error(e);
-          redirigirSesionValida(); // sin conexión: no bloqueamos, deja pasar con la sesión local
+        setLoading(false);
+        if (data.ok && !data.sesionValida) {
+          showError('Tu sesión se abrió en otro dispositivo. Inicia sesión de nuevo.');
         }
-        return;
       }
-
-      redirigirSesionValida(); // sesión vieja sin "codigo" -> dejar pasar una vez
+    } catch (e) {
+      console.error(e);
+      redirigirSesionValida(); // sin conexión: no bloqueamos, deja pasar con la sesión local
     }
+    return;
+  }
+
+  // Sesión vieja sin "codigo" (de antes del sistema de código de
+  // seguridad): ya no es válida por definición, se limpia y se
+  // deja la pantalla de login para que inicie de nuevo.
+  localStorage.removeItem(SESSION_KEY);
+}
 
     function redirigirSesionValida() {
       successMsg.classList.add('show');
