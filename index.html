@@ -587,6 +587,23 @@
     btnLogin.addEventListener('click', handleLogin);
     emailEl.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
 
+    // Formatea automáticamente a "579-352": deja solo dígitos y guión,
+    // y coloca el guión después del tercer dígito, sin importar si el
+    // usuario escribe manualmente o pega el código completo.
+    function formatearCodigo(valor) {
+      const soloDigitos = valor.replace(/[^0-9]/g, '').slice(0, 6);
+      if (soloDigitos.length <= 3) return soloDigitos;
+      return soloDigitos.slice(0, 3) + '-' + soloDigitos.slice(3);
+    }
+
+    codeInput.addEventListener('input', () => {
+      const cursorAlFinal = codeInput.selectionEnd === codeInput.value.length;
+      codeInput.value = formatearCodigo(codeInput.value);
+      if (cursorAlFinal) {
+        codeInput.setSelectionRange(codeInput.value.length, codeInput.value.length);
+      }
+    });
+
     btnVerificar.addEventListener('click', handleVerificarCodigo);
     codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleVerificarCodigo(); });
 
