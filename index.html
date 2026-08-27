@@ -116,6 +116,12 @@
       transition: border-color 0.15s, box-shadow 0.15s;
       padding: 0 12px;
     }
+    input#codeInput {
+      text-align: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px;
+      letter-spacing: 3px;
+    }
     input:focus {
       border-color: #378add;
       box-shadow: 0 0 0 3px rgba(55,138,221,0.12);
@@ -140,6 +146,17 @@
     .btn-login:hover:not(:disabled) { opacity: 0.85; }
     .btn-login:active:not(:disabled) { transform: scale(0.98); }
     .btn-login:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-secondary {
+      width: 100%;
+      background: transparent;
+      color: #5f5e5a;
+      border: none;
+      font-size: 12px;
+      cursor: pointer;
+      margin-top: 0.85rem;
+      text-decoration: underline;
+    }
+    .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
     .spinner {
       width: 16px;
       height: 16px;
@@ -161,16 +178,18 @@
     }
     .msg.error   { color: #a32d2d; background: #fcebeb; border: 1px solid #f09595; }
     .msg.success { color: #3b6d11; background: #eaf3de; border: 1px solid #97c459; }
+    .msg.info    { color: #185fa5; background: #e6f1fb; border: 1px solid #93c1e8; }
     .msg.show    { display: flex; }
     .divider { border: none; border-top: 1px solid #e8e6df; margin: 1.5rem 0 1rem; }
     .help { font-size: 12px; color: #b4b2a9; text-align: center; line-height: 1.6; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
 
   <div class="card" id="loginCard">
 
-    <!-- ── VISTA 1: Login ── -->
+    <!-- ── VISTA 1: Login (correo) ── -->
     <div id="viewLogin">
       <div class="logo">
         <div class="logo-icon"><i class="ti ti-box"></i></div>
@@ -203,6 +222,39 @@
       <p class="help">¿No tienes acceso? Contacta al administrador del curso.</p>
     </div>
 
+    <!-- ── VISTA 2: Código de verificación (enviado por correo) ── -->
+    <div id="viewCode" class="hidden">
+      <div class="logo">
+        <div class="logo-icon"><i class="ti ti-mail-opened"></i></div>
+        <span class="logo-text">Diego Gaona · Cursos</span>
+      </div>
+      <h1>Revisa tu correo</h1>
+      <p class="subtitle" id="codeSubtitle">Te enviamos un código de acceso.</p>
+
+      <div class="msg error" id="codeErrorMsg">
+        <i class="ti ti-alert-circle"></i>
+        <span id="codeErrorText"></span>
+      </div>
+      <div class="msg info" id="codeInfoMsg">
+        <i class="ti ti-info-circle"></i>
+        <span id="codeInfoText">Código reenviado.</span>
+      </div>
+
+      <div class="field">
+        <label for="codeInput">Código de acceso</label>
+        <input type="text" id="codeInput" placeholder="579-352"
+          autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" maxlength="7" />
+      </div>
+
+      <button class="btn-login" id="btnVerificar">
+        <div class="spinner" id="spinnerVerificar"></div>
+        <span id="btnVerificarText">Verificar código</span>
+      </button>
+
+      <button class="btn-secondary" id="btnReenviar">Reenviar código</button>
+      <button class="btn-secondary" id="btnCambiarCorreo">‹ Usar otro correo</button>
+    </div>
+
   </div>
 
   <script>
@@ -222,6 +274,9 @@
     // ================================================================
     //  REFERENCIAS AL HTML
     // ================================================================
+    const viewLogin   = document.getElementById('viewLogin');
+    const viewCode    = document.getElementById('viewCode');
+
     const btnLogin    = document.getElementById('btnLogin');
     const emailEl     = document.getElementById('email');
     const errorMsg    = document.getElementById('errorMsg');
@@ -230,19 +285,21 @@
     const spinner     = document.getElementById('spinner');
     const btnText     = document.getElementById('btnText');
 
-    // ================================================================
-    //  CÓDIGO DE SESIÓN (anti-comparticion de cuenta)
-    //  Cada login exitoso genera un código nuevo tipo "579-352" y lo
-    //  manda al backend, que lo guarda en la hoja. Si otro dispositivo
-    //  inicia sesión con el mismo correo, se genera OTRO código y el
-    //  primero deja de ser válido: al revalidar, el backend responde
-    //  que el código ya no coincide y esa sesión se cierra sola.
-    // ================================================================
-    function generarCodigoSesion() {
-      const a = Math.floor(100 + Math.random() * 900);
-      const b = Math.floor(100 + Math.random() * 900);
-      return `${a}-${b}`;
-    }
+    const codeSubtitle    = document.getElementById('codeSubtitle');
+    const codeInput       = document.getElementById('codeInput');
+    const codeErrorMsg    = document.getElementById('codeErrorMsg');
+    const codeErrorText   = document.getElementById('codeErrorText');
+    const codeInfoMsg     = document.getElementById('codeInfoMsg');
+    const codeInfoText    = document.getElementById('codeInfoText');
+    const btnVerificar    = document.getElementById('btnVerificar');
+    const spinnerVerificar= document.getElementById('spinnerVerificar');
+    const btnVerificarText= document.getElementById('btnVerificarText');
+    const btnReenviar     = document.getElementById('btnReenviar');
+    const btnCambiarCorreo= document.getElementById('btnCambiarCorreo');
+
+    // Se guarda en memoria (NO en localStorage) mientras se completa
+    // el paso 2 — todavía no hay sesión confirmada.
+    let pendiente = { email: '', geo: null };
 
     // ================================================================
     //  VERIFICAR SESIÓN AL CARGAR
@@ -274,21 +331,11 @@
 
       const { email, codigo, expira } = sesion;
 
-      // Expiró localmente (30 días) → fuera, sin llamar al servidor
-      if (!expira || Date.now() >= expira) {
+      if (!expira || Date.now() >= expira || !email) {
         localStorage.removeItem(SESSION_KEY);
         return;
       }
 
-      // No hay código guardado (sesión antigua antes de este sistema) → la
-      // tratamos como válida por esta vez; al hacer login de nuevo tomará código.
-      if (!email) {
-        localStorage.removeItem(SESSION_KEY);
-        return;
-      }
-
-      // Sesión con código: la confirmamos contra el servidor antes de redirigir,
-      // por si alguien más inició sesión con este correo desde otro lugar.
       if (codigo) {
         setLoading(true);
         btnText.textContent = 'Verificando sesión...';
@@ -301,13 +348,11 @@
 
           const res  = await fetch(url);
           const data = await res.json();
-
           const estado = (data.estado || '').toString().trim().toLowerCase();
 
           if (data.ok && ESTADOS_PERMITIDOS.includes(estado) && data.sesionValida) {
             redirigirSesionValida();
           } else {
-            // Otro dispositivo tomó la sesión, o el acceso ya no es válido
             localStorage.removeItem(SESSION_KEY);
             setLoading(false);
             if (data.ok && !data.sesionValida) {
@@ -315,16 +360,13 @@
             }
           }
         } catch (e) {
-          // Sin conexión al validar: no bloqueamos al usuario, dejamos pasar
-          // con la sesión local y se revalidará después en mis-cursos.html.
           console.error(e);
-          redirigirSesionValida();
+          redirigirSesionValida(); // sin conexión: no bloqueamos, deja pasar con la sesión local
         }
         return;
       }
 
-      // Fallback: sesión vieja sin campo "codigo" -> dejar pasar una vez
-      redirigirSesionValida();
+      redirigirSesionValida(); // sesión vieja sin "codigo" -> dejar pasar una vez
     }
 
     function redirigirSesionValida() {
@@ -335,42 +377,58 @@
     }
 
     // ================================================================
-    //  FUNCIONES DE MENSAJES Y ESTADO DEL BOTÓN
+    //  MENSAJES Y ESTADO DE BOTONES
     // ================================================================
     function showError(msg) {
       errorText.textContent = msg;
       errorMsg.classList.add('show');
       successMsg.classList.remove('show');
     }
-
     function hideMessages() {
       errorMsg.classList.remove('show');
       successMsg.classList.remove('show');
     }
-
     function setLoading(loading) {
       btnLogin.disabled     = loading;
       spinner.style.display = loading ? 'block' : 'none';
       btnText.textContent   = loading ? 'Verificando...' : 'Entrar';
     }
 
+    function showCodeError(msg) {
+      codeErrorText.textContent = msg;
+      codeErrorMsg.classList.add('show');
+      codeInfoMsg.classList.remove('show');
+    }
+    function showCodeInfo(msg) {
+      codeInfoText.textContent = msg;
+      codeInfoMsg.classList.add('show');
+      codeErrorMsg.classList.remove('show');
+    }
+    function hideCodeMessages() {
+      codeErrorMsg.classList.remove('show');
+      codeInfoMsg.classList.remove('show');
+    }
+    function setLoadingVerificar(loading) {
+      btnVerificar.disabled      = loading;
+      btnReenviar.disabled       = loading;
+      btnCambiarCorreo.disabled  = loading;
+      spinnerVerificar.style.display = loading ? 'block' : 'none';
+      btnVerificarText.textContent   = loading ? 'Verificando...' : 'Verificar código';
+    }
+
     // ================================================================
-    //  OBTENER UBICACIÓN APROXIMADA POR IP (no pide permiso al usuario)
-    //  Si falla o tarda más de 2.5s, seguimos sin bloquear el login.
+    //  UBICACIÓN APROXIMADA POR IP (no pide permiso al usuario)
     // ================================================================
     async function obtenerUbicacion() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2500);
-
       try {
         const res = await fetch(GEO_URL, { signal: controller.signal });
         const data = await res.json();
         clearTimeout(timeout);
         return {
-          ciudad: data.city || '',
-          region: data.region || '',
-          pais:   data.country || '',
-          ip:     data.ip || ''
+          ciudad: data.city || '', region: data.region || '',
+          pais: data.country || '', ip: data.ip || ''
         };
       } catch (e) {
         clearTimeout(timeout);
@@ -379,16 +437,14 @@
     }
 
     // ================================================================
-    //  FUNCIÓN PRINCIPAL DE LOGIN (correo + ubicación + código de sesión)
+    //  PASO 1 — pedir correo, el backend genera y envía el código
     // ================================================================
     async function handleLogin() {
       hideMessages();
 
       const email = emailEl.value.trim().toLowerCase();
-
       if (!email) { showError('Ingresa tu correo electrónico.'); emailEl.focus(); return; }
 
-      // Validación básica de formato de correo
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
         showError('Ingresa un correo electrónico válido.');
@@ -400,12 +456,72 @@
 
       try {
         const geo = await obtenerUbicacion();
-        const codigoSesion = generarCodigoSesion();
 
         const url = WEBHOOK_URL
           + '?action=login'
-          + '&email=' + encodeURIComponent(email)
-          + '&codigo=' + encodeURIComponent(codigoSesion)
+          + '&email=' + encodeURIComponent(email);
+
+        const response = await fetch(url, { method: 'GET', redirect: 'follow' });
+        const text     = await response.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch { throw new Error('Respuesta inesperada del servidor.'); }
+
+        const estado = (data.estado || '').toString().trim().toLowerCase();
+
+        if (data.ok && ESTADOS_PERMITIDOS.includes(estado)) {
+          pendiente.email = email;
+          pendiente.geo   = geo;
+          mostrarVistaCodigo(email);
+        } else {
+          showError(data.mensaje || 'Correo no encontrado o sin acceso activo.');
+          emailEl.focus();
+        }
+      } catch (err) {
+        showError('No se pudo conectar con el servidor. Intenta de nuevo.');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function mostrarVistaCodigo(email) {
+      codeSubtitle.textContent = 'Enviamos un código de acceso a ' + email + '.';
+      hideCodeMessages();
+      codeInput.value = '';
+      viewLogin.classList.add('hidden');
+      viewCode.classList.remove('hidden');
+      codeInput.focus();
+    }
+
+    function volverAlLogin() {
+      pendiente = { email: '', geo: null };
+      hideCodeMessages();
+      viewCode.classList.add('hidden');
+      viewLogin.classList.remove('hidden');
+      hideMessages();
+      emailEl.focus();
+    }
+
+    // ================================================================
+    //  PASO 2 — confirmar el código recibido por correo
+    // ================================================================
+    async function handleVerificarCodigo() {
+      hideCodeMessages();
+
+      const codigo = codeInput.value.trim();
+      if (!codigo) { showCodeError('Ingresa el código que recibiste.'); codeInput.focus(); return; }
+      if (!pendiente.email) { volverAlLogin(); return; }
+
+      setLoadingVerificar(true);
+
+      try {
+        const geo = pendiente.geo || { ciudad: '', region: '', pais: '', ip: '' };
+
+        const url = WEBHOOK_URL
+          + '?action=verificarCodigo'
+          + '&email='  + encodeURIComponent(pendiente.email)
+          + '&codigo=' + encodeURIComponent(codigo)
           + '&ciudad=' + encodeURIComponent(geo.ciudad)
           + '&region=' + encodeURIComponent(geo.region)
           + '&pais='   + encodeURIComponent(geo.pais)
@@ -422,31 +538,60 @@
         if (data.ok && ESTADOS_PERMITIDOS.includes(estado)) {
           const expira = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
           localStorage.setItem(SESSION_KEY, JSON.stringify({
-            email,
+            email: pendiente.email,
             estado,
-            codigo: codigoSesion,
+            codigo: data.codigo || codigo,
             expira
           }));
-          successMsg.classList.add('show');
-          setTimeout(() => { window.location.href = REDIRECT_URL; }, 800);
+          showCodeInfo('Acceso concedido. Redirigiendo...');
+          setTimeout(() => { window.location.href = REDIRECT_URL; }, 700);
         } else {
-          showError(data.mensaje || 'Correo no encontrado o sin acceso activo.');
-          emailEl.focus();
+          showCodeError(data.mensaje || 'Código incorrecto o expirado.');
+          codeInput.focus();
         }
-
       } catch (err) {
-        showError('No se pudo conectar con el servidor. Intenta de nuevo.');
+        showCodeError('No se pudo conectar con el servidor. Intenta de nuevo.');
         console.error(err);
       } finally {
-        setLoading(false);
+        setLoadingVerificar(false);
       }
     }
 
     // ================================================================
-    //  EVENTOS DE DISPARO DEL LOGIN
+    //  REENVIAR CÓDIGO (repite el paso 1 con el mismo correo)
+    // ================================================================
+    async function handleReenviar() {
+      if (!pendiente.email) { volverAlLogin(); return; }
+      hideCodeMessages();
+      setLoadingVerificar(true);
+      try {
+        const url = WEBHOOK_URL + '?action=login&email=' + encodeURIComponent(pendiente.email);
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.ok) {
+          showCodeInfo('Te enviamos un nuevo código.');
+        } else {
+          showCodeError(data.mensaje || 'No se pudo reenviar el código.');
+        }
+      } catch (err) {
+        showCodeError('No se pudo conectar con el servidor.');
+        console.error(err);
+      } finally {
+        setLoadingVerificar(false);
+      }
+    }
+
+    // ================================================================
+    //  EVENTOS
     // ================================================================
     btnLogin.addEventListener('click', handleLogin);
     emailEl.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+
+    btnVerificar.addEventListener('click', handleVerificarCodigo);
+    codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleVerificarCodigo(); });
+
+    btnReenviar.addEventListener('click', handleReenviar);
+    btnCambiarCorreo.addEventListener('click', volverAlLogin);
   </script>
 
 </body>
