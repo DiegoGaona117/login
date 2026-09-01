@@ -156,7 +156,7 @@
       margin-top: 0.85rem;
       text-decoration: underline;
     }
-    .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; text-decoration: none; }
     .spinner {
       width: 16px;
       height: 16px;
@@ -301,6 +301,13 @@
     // el paso 2 — todavía no hay sesión confirmada.
     let pendiente = { email: '', geo: null };
 
+    // Texto original del botón "Reenviar código", para restaurarlo
+    // cuando termina el cooldown.
+    const TEXTO_REENVIAR_DEFAULT = btnReenviar.textContent;
+
+    // Referencia al intervalo de cuenta regresiva activo (si hay uno).
+    let cooldownInterval = null;
+
     // ================================================================
     //  VERIFICAR SESIÓN AL CARGAR
     // ================================================================
@@ -318,59 +325,59 @@
     });
 
     async function verificarSesionExistente() {
-  const sesionRaw = localStorage.getItem(SESSION_KEY);
-  if (!sesionRaw) return;
+      const sesionRaw = localStorage.getItem(SESSION_KEY);
+      if (!sesionRaw) return;
 
-  let sesion;
-  try {
-    sesion = JSON.parse(sesionRaw);
-  } catch {
-    localStorage.removeItem(SESSION_KEY);
-    return;
-  }
-
-  const { email, codigo, expira } = sesion;
-
-  if (!expira || Date.now() >= expira || !email) {
-    localStorage.removeItem(SESSION_KEY);
-    return;
-  }
-
-  if (codigo) {
-    setLoading(true);
-    btnText.textContent = 'Verificando sesión...';
-
-    try {
-      const url = WEBHOOK_URL
-        + '?action=checkEstado'
-        + '&email=' + encodeURIComponent(email)
-        + '&codigo=' + encodeURIComponent(codigo);
-
-      const res  = await fetch(url);
-      const data = await res.json();
-      const estado = (data.estado || '').toString().trim().toLowerCase();
-
-      if (data.ok && ESTADOS_PERMITIDOS.includes(estado) && data.sesionValida) {
-        redirigirSesionValida();
-      } else {
+      let sesion;
+      try {
+        sesion = JSON.parse(sesionRaw);
+      } catch {
         localStorage.removeItem(SESSION_KEY);
-        setLoading(false);
-        if (data.ok && !data.sesionValida) {
-          showError('Tu sesión se abrió en otro dispositivo. Inicia sesión de nuevo.');
-        }
+        return;
       }
-    } catch (e) {
-      console.error(e);
-      redirigirSesionValida(); // sin conexión: no bloqueamos, deja pasar con la sesión local
-    }
-    return;
-  }
 
-  // Sesión vieja sin "codigo" (de antes del sistema de código de
-  // seguridad): ya no es válida por definición, se limpia y se
-  // deja la pantalla de login para que inicie de nuevo.
-  localStorage.removeItem(SESSION_KEY);
-}
+      const { email, codigo, expira } = sesion;
+
+      if (!expira || Date.now() >= expira || !email) {
+        localStorage.removeItem(SESSION_KEY);
+        return;
+      }
+
+      if (codigo) {
+        setLoading(true);
+        btnText.textContent = 'Verificando sesión...';
+
+        try {
+          const url = WEBHOOK_URL
+            + '?action=checkEstado'
+            + '&email=' + encodeURIComponent(email)
+            + '&codigo=' + encodeURIComponent(codigo);
+
+          const res  = await fetch(url);
+          const data = await res.json();
+          const estado = (data.estado || '').toString().trim().toLowerCase();
+
+          if (data.ok && ESTADOS_PERMITIDOS.includes(estado) && data.sesionValida) {
+            redirigirSesionValida();
+          } else {
+            localStorage.removeItem(SESSION_KEY);
+            setLoading(false);
+            if (data.ok && !data.sesionValida) {
+              showError('Tu sesión se abrió en otro dispositivo. Inicia sesión de nuevo.');
+            }
+          }
+        } catch (e) {
+          console.error(e);
+          redirigirSesionValida(); // sin conexión: no bloqueamos, deja pasar con la sesión local
+        }
+        return;
+      }
+
+      // Sesión vieja sin "codigo" (de antes del sistema de código de
+      // seguridad): ya no es válida por definición, se limpia y se
+      // deja la pantalla de login para que inicie de nuevo.
+      localStorage.removeItem(SESSION_KEY);
+    }
 
     function redirigirSesionValida() {
       successMsg.classList.add('show');
@@ -413,10 +420,43 @@
     }
     function setLoadingVerificar(loading) {
       btnVerificar.disabled      = loading;
-      btnReenviar.disabled       = loading;
       btnCambiarCorreo.disabled  = loading;
+      // btnReenviar no se toca aquí: su estado lo controla el cooldown
+      // (ver iniciarCooldownReenviar / detenerCooldownReenviar).
       spinnerVerificar.style.display = loading ? 'block' : 'none';
       btnVerificarText.textContent   = loading ? 'Verificando...' : 'Verificar código';
+    }
+
+    // ================================================================
+    //  COOLDOWN de "Reenviar código" — el backend es quien decide
+    //  cuánto falta (esperaSegundos); aquí solo lo mostramos.
+    // ================================================================
+    function iniciarCooldownReenviar(segundosIniciales) {
+      if (cooldownInterval) clearInterval(cooldownInterval);
+
+      let restante = Math.max(0, Math.round(segundosIniciales));
+      btnReenviar.disabled = true;
+
+      const actualizarTexto = () => {
+        if (restante <= 0) {
+          detenerCooldownReenviar();
+          return;
+        }
+        btnReenviar.textContent = 'Reenviar código (' + restante + 's)';
+        restante--;
+      };
+
+      actualizarTexto();
+      cooldownInterval = setInterval(actualizarTexto, 1000);
+    }
+
+    function detenerCooldownReenviar() {
+      if (cooldownInterval) {
+        clearInterval(cooldownInterval);
+        cooldownInterval = null;
+      }
+      btnReenviar.disabled    = false;
+      btnReenviar.textContent = TEXTO_REENVIAR_DEFAULT;
     }
 
     // ================================================================
@@ -476,6 +516,11 @@
           pendiente.email = email;
           pendiente.geo   = geo;
           mostrarVistaCodigo(email);
+          // Si el usuario vuelve a este paso más tarde y pide otro
+          // código antes de tiempo, ya se arranca el cooldown ahí.
+        } else if (data.cooldown) {
+          showError(data.mensaje || 'Ya tienes un código pendiente. Espera unos minutos.');
+          emailEl.focus();
         } else {
           showError(data.mensaje || 'Correo no encontrado o sin acceso activo.');
           emailEl.focus();
@@ -499,6 +544,7 @@
 
     function volverAlLogin() {
       pendiente = { email: '', geo: null };
+      detenerCooldownReenviar();
       hideCodeMessages();
       viewCode.classList.add('hidden');
       viewLogin.classList.remove('hidden');
@@ -546,6 +592,7 @@
             codigo: data.codigo || codigo,
             expira
           }));
+          detenerCooldownReenviar();
           showCodeInfo('Acceso concedido. Redirigiendo...');
           setTimeout(() => { window.location.href = REDIRECT_URL; }, 700);
         } else {
@@ -571,8 +618,16 @@
         const url = WEBHOOK_URL + '?action=login&email=' + encodeURIComponent(pendiente.email);
         const response = await fetch(url);
         const data = await response.json();
+
         if (data.ok) {
           showCodeInfo('Te enviamos un nuevo código.');
+          // Arranca el cooldown preventivamente con el mismo valor
+          // que usa el backend, para que no se pueda volver a pedir
+          // antes de tiempo.
+          iniciarCooldownReenviar(5 * 60);
+        } else if (data.cooldown) {
+          showCodeError(data.mensaje || 'Espera unos minutos antes de pedir otro código.');
+          iniciarCooldownReenviar(data.esperaSegundos || 60);
         } else {
           showCodeError(data.mensaje || 'No se pudo reenviar el código.');
         }
