@@ -363,7 +363,9 @@
           } else {
             localStorage.removeItem(SESSION_KEY);
             setLoading(false);
-            if (data.ok && !data.sesionValida) {
+            if (data.bloqueado) {
+              showError('Demasiados intentos. Inicia sesión de nuevo con tu correo.');
+            } else if (data.ok && !data.sesionValida) {
               showError('Tu sesión se abrió en otro dispositivo. Inicia sesión de nuevo.');
             }
           }
